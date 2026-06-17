@@ -1,0 +1,833 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MolView - 3D Molecular Visualizer</title>
+    <!-- Tailwind CSS for responsive dark-mode styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- 3Dmol.js library for 3D chemical structure rendering -->
+    <script src="https://3Dmol.csb.pitt.edu/build/3Dmol-min.js"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {}
+            },
+            darkMode: 'class'
+        }
+    </script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            color: #e0e0e0;
+        }
+
+        /* 3D Viewer Container Styles */
+        #glViewer {
+            width: 100%;
+            height: 100%;
+            position: relative;
+            background: linear-gradient(135deg, #0f3460 0%, #16213e 100%);
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+        }
+
+        /* Sidebar Styling */
+        .sidebar {
+            background: linear-gradient(180deg, #16213e 0%, #0f3460 100%);
+            border-right: 2px solid #00d4ff;
+            overflow-y: auto;
+            box-shadow: 2px 0 20px rgba(0, 212, 255, 0.1);
+        }
+
+        /* Input Styling */
+        input, select {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid #00d4ff;
+            color: #e0e0e0;
+            transition: all 0.3s ease;
+        }
+
+        input:focus, select:focus {
+            outline: none;
+            background: rgba(0, 212, 255, 0.1);
+            border-color: #00d4ff;
+            box-shadow: 0 0 10px rgba(0, 212, 255, 0.3);
+        }
+
+        /* Button Styling */
+        button {
+            background: linear-gradient(135deg, #00d4ff 0%, #0099cc 100%);
+            color: #fff;
+            border: none;
+            padding: 10px 16px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: 600;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 15px rgba(0, 212, 255, 0.2);
+        }
+
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(0, 212, 255, 0.4);
+        }
+
+        button:active {
+            transform: translateY(0);
+        }
+
+        button.active {
+            background: linear-gradient(135deg, #00ff88 0%, #00cc66 100%);
+            box-shadow: 0 4px 15px rgba(0, 255, 136, 0.3);
+        }
+
+        /* Search History Styling */
+        .history-item {
+            background: rgba(0, 212, 255, 0.05);
+            border-left: 3px solid #00d4ff;
+            padding: 10px 12px;
+            margin: 8px 0;
+            cursor: pointer;
+            border-radius: 4px;
+            transition: all 0.2s ease;
+        }
+
+        .history-item:hover {
+            background: rgba(0, 212, 255, 0.15);
+            transform: translateX(5px);
+        }
+
+        /* Alert/Notification Styling */
+        .alert {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            padding: 16px 24px;
+            border-radius: 8px;
+            font-weight: 500;
+            animation: slideIn 0.3s ease, slideOut 0.3s ease 4.7s;
+            z-index: 1000;
+            max-width: 400px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+        }
+
+        .alert-error {
+            background: linear-gradient(135deg, #ff6b6b 0%, #ee5a6f 100%);
+            border-left: 4px solid #ff6b6b;
+            color: #fff;
+        }
+
+        .alert-success {
+            background: linear-gradient(135deg, #00d4ff 0%, #0099cc 100%);
+            border-left: 4px solid #00d4ff;
+            color: #fff;
+        }
+
+        .alert-warning {
+            background: linear-gradient(135deg, #ffa500 0%, #ff8c00 100%);
+            border-left: 4px solid #ffa500;
+            color: #fff;
+        }
+
+        @keyframes slideIn {
+            from {
+                transform: translateX(400px);
+                opacity: 0;
+            }
+            to {
+                transform: translateX(0);
+                opacity: 1;
+            }
+        }
+
+        @keyframes slideOut {
+            from {
+                transform: translateX(0);
+                opacity: 1;
+            }
+            to {
+                transform: translateX(400px);
+                opacity: 0;
+            }
+        }
+
+        /* Loading Spinner */
+        .spinner {
+            border: 3px solid rgba(0, 212, 255, 0.2);
+            border-top: 3px solid #00d4ff;
+            border-radius: 50%;
+            width: 30px;
+            height: 30px;
+            animation: spin 1s linear infinite;
+            display: inline-block;
+            margin-right: 8px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        /* Scrollbar Styling */
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: rgba(0, 212, 255, 0.05);
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: #00d4ff;
+            border-radius: 4px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: #0099cc;
+        }
+
+        /* Badge Styling */
+        .badge {
+            display: inline-block;
+            background: rgba(0, 212, 255, 0.2);
+            color: #00d4ff;
+            padding: 4px 8px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+
+        /* Responsive Grid */
+        @media (max-width: 768px) {
+            .container-main {
+                flex-direction: column;
+            }
+
+            .sidebar {
+                border-right: none;
+                border-bottom: 2px solid #00d4ff;
+                max-height: 300px;
+            }
+
+            #glViewer {
+                min-height: 500px;
+            }
+        }
+
+        /* Info Panel */
+        .info-panel {
+            background: rgba(0, 212, 255, 0.05);
+            border: 1px solid #00d4ff;
+            padding: 12px;
+            border-radius: 6px;
+            margin-top: 10px;
+            font-size: 13px;
+            line-height: 1.6;
+        }
+
+        /* Loading State */
+        .loading {
+            opacity: 0.6;
+            pointer-events: none;
+        }
+
+        /* Clear Button */
+        .btn-clear {
+            background: linear-gradient(135deg, #ff6b6b 0%, #ee5a6f 100%);
+        }
+
+        .btn-clear:hover {
+            box-shadow: 0 6px 20px rgba(255, 107, 107, 0.4);
+        }
+
+        /* Section Title */
+        .section-title {
+            font-size: 14px;
+            font-weight: 700;
+            color: #00d4ff;
+            margin-top: 16px;
+            margin-bottom: 8px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+    </style>
+</head>
+<body class="dark">
+    <div class="flex h-screen container-main">
+        <!-- LEFT SIDEBAR: Controls & Search History -->
+        <div class="sidebar w-full md:w-80 p-6 flex flex-col gap-4">
+            <!-- Header -->
+            <div>
+                <h1 class="text-3xl font-bold bg-gradient-to-r from-cyan-400 to-blue-500 bg-clip-text text-transparent mb-2">
+                    MolView
+                </h1>
+                <p class="text-sm text-gray-400">3D Molecular Visualizer</p>
+            </div>
+
+            <!-- Search Input Section -->
+            <div>
+                <label class="block text-sm font-semibold mb-2">Search Compound</label>
+                <div class="flex gap-2">
+                    <input 
+                        type="text" 
+                        id="searchInput" 
+                        placeholder="e.g., Caffeine, Water, Aspirin..."
+                        class="flex-1 px-4 py-2 rounded-lg focus:ring-2 focus:ring-cyan-400"
+                        autocomplete="off"
+                    >
+                    <button id="searchBtn" class="px-4 py-2 rounded-lg whitespace-nowrap">
+                        Search
+                    </button>
+                </div>
+                <p class="text-xs text-gray-400 mt-2">
+                    💡 Supports IUPAC names, common names, CAS numbers, and molecular formulas
+                </p>
+            </div>
+
+            <!-- Rendering Style Controls -->
+            <div>
+                <div class="section-title">Rendering Style</div>
+                <div class="grid grid-cols-2 gap-2">
+                    <button id="styleStick" class="text-sm py-2 px-3 rounded active" title="Stick representation">
+                        Stick
+                    </button>
+                    <button id="styleSphere" class="text-sm py-2 px-3 rounded" title="Spacefill/CPK model">
+                        Spacefill
+                    </button>
+                    <button id="styleBallStick" class="text-sm py-2 px-3 rounded" title="Ball and Stick model">
+                        Ball & Stick
+                    </button>
+                    <button id="styleCartoon" class="text-sm py-2 px-3 rounded" title="Cartoon representation">
+                        Cartoon
+                    </button>
+                </div>
+            </div>
+
+            <!-- Additional Visualization Options -->
+            <div>
+                <div class="section-title">Visualization</div>
+                <button id="toggleSurface" class="w-full text-sm py-2 px-3 rounded mb-2">
+                    Toggle Surface
+                </button>
+                <button id="toggleSticks" class="w-full text-sm py-2 px-3 rounded mb-2">
+                    Toggle Sticks
+                </button>
+                <button id="resetView" class="w-full text-sm py-2 px-3 rounded">
+                    Reset View
+                </button>
+            </div>
+
+            <!-- Color Options -->
+            <div>
+                <div class="section-title">Color Scheme</div>
+                <select id="colorScheme" class="w-full px-4 py-2 rounded-lg">
+                    <option value="default">Default (Atom Colors)</option>
+                    <option value="spectrum">Spectrum</option>
+                    <option value="rainbow">Rainbow Chain</option>
+                    <option value="whitecarbon">White Carbon</option>
+                </select>
+            </div>
+
+            <!-- Compound Information -->
+            <div id="compoundInfo" class="hidden">
+                <div class="section-title">Compound Info</div>
+                <div class="info-panel">
+                    <p><strong>Name:</strong> <span id="infoName">-</span></p>
+                    <p><strong>Formula:</strong> <span id="infoFormula">-</span></p>
+                    <p><strong>CID:</strong> <span id="infoCID">-</span></p>
+                    <p><strong>Atoms:</strong> <span id="infoAtoms">-</span></p>
+                </div>
+            </div>
+
+            <!-- Search History -->
+            <div class="flex-1">
+                <div class="section-title">Search History</div>
+                <div id="searchHistory" class="space-y-1">
+                    <p class="text-xs text-gray-500 italic">No searches yet</p>
+                </div>
+                <button id="clearHistory" class="w-full text-sm py-2 px-3 rounded btn-clear mt-4">
+                    Clear History
+                </button>
+            </div>
+
+            <!-- Footer -->
+            <div class="text-xs text-gray-500 border-t border-gray-700 pt-4">
+                <p>Data source: <strong>PubChem REST API</strong></p>
+                <p>3D Rendering: <strong>3Dmol.js</strong></p>
+                <p class="mt-2">💡 Tip: You can rotate, zoom, and pan the molecule with your mouse</p>
+            </div>
+        </div>
+
+        <!-- RIGHT SIDE: 3D Viewport -->
+        <div class="flex-1 p-6 bg-gradient-to-br from-slate-900 to-slate-800">
+            <div id="glViewer" style="width: 100%; height: 100%;"></div>
+        </div>
+    </div>
+
+    <!-- Alert Container -->
+    <div id="alertContainer"></div>
+
+    <script>
+        /**
+         * ============================================
+         * 3D MOLECULAR VISUALIZER - Main Application
+         * ============================================
+         * 
+         * This application fetches molecular structures from the PubChem API
+         * and renders them in 3D using the 3Dmol.js library.
+         */
+
+        // Global State Management
+        const STATE = {
+            currentCompound: null,
+            currentStyle: 'stick',
+            searchHistory: JSON.parse(localStorage.getItem('molviewHistory')) || [],
+            viewer: null,
+            isLoading: false,
+            surfaceVisible: false,
+            sticksVisible: true
+        };
+
+        /**
+         * Initialize 3Dmol.js viewer
+         * 
+         * 3Dmol.js creates a WebGL canvas for rendering 3D molecular structures.
+         * The viewer handles mouse interactions (rotation, zoom, pan) automatically.
+         * Canvas initialization creates a container that processes chemical data streams.
+         */
+        function initializeViewer() {
+            const viewerElement = document.getElementById('glViewer');
+            
+            // Create viewer with configuration
+            // The viewer initializes a WebGL context and sets up interaction handlers
+            STATE.viewer = $3Dmol.createViewer(viewerElement, {
+                backgroundColor: '#0f3460',
+                antialias: true,
+                orthographic: false
+            });
+
+            // Set default camera position
+            STATE.viewer.setStyle({}, {cartoon: {color: 'spectrum'}});
+            STATE.viewer.zoomTo();
+            STATE.viewer.render();
+        }
+
+        /**
+         * Fetch molecular structure from PubChem API
+         * 
+         * PubChem is a free chemistry database with millions of compounds.
+         * This function:
+         * 1. Searches for the compound by name/formula/CAS number
+         * 2. Gets the CID (Compound ID)
+         * 3. Fetches the 3D structure in SDF format with coordinates
+         * 4. Returns the SDF data for 3D rendering
+         */
+        async function fetchCompoundFromPubChem(query) {
+            try {
+                showAlert('Searching PubChem database...', 'info');
+                
+                // Step 1: Search for compound by name
+                // Supports IUPAC names, common names, CAS numbers, and formulas
+                const searchUrl = `https://pubchem.ncbi.nlm.nih.gov/cgi-bin/autocomplete/autocomplete.cgi?input=${encodeURIComponent(query)}&button=Search&n=10&type=compound`;
+                
+                const searchResponse = await fetch(searchUrl);
+                const searchData = await searchResponse.json();
+
+                if (!searchData.dictionary_terms || searchData.dictionary_terms.compound.length === 0) {
+                    throw new Error(`Compound "${query}" not found in PubChem database`);
+                }
+
+                // Get the CID from the first result
+                const cid = searchData.dictionary_terms.compound[0].cid;
+                
+                // Step 2: Fetch compound properties
+                const propsUrl = `https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/cid/${cid}/property/MolecularFormula,IUPACName,CanonicalSMILES/JSON`;
+                const propsResponse = await fetch(propsUrl);
+                const propsData = await propsResponse.json();
+                
+                const compound = propsData.properties[0];
+                
+                // Step 3: Fetch 3D structure in SDF format
+                // SDF (Structure Data Format) includes 3D coordinates crucial for visualization
+                // The format includes atom positions (x, y, z) and bond information
+                const sdfUrl = `https://pubchem.ncbi.nlm.nih.gov/cgi-bin/rest/ndb.cgi?query=cids&cids=${cid}&cmd=query&o=sdf&mode=3d`;
+                
+                const sdfResponse = await fetch(sdfUrl);
+                const sdfData = await sdfResponse.text();
+
+                if (!sdfData || sdfData.includes('No data') || sdfData.includes('error')) {
+                    throw new Error('3D structure data not available for this compound');
+                }
+
+                return {
+                    cid: cid,
+                    name: compound.IUPACName || searchData.dictionary_terms.compound[0].name,
+                    formula: compound.MolecularFormula,
+                    smiles: compound.CanonicalSMILES,
+                    sdf: sdfData
+                };
+
+            } catch (error) {
+                showAlert(`Error: ${error.message}`, 'error');
+                throw error;
+            }
+        }
+
+        /**
+         * Render molecular structure in 3D viewer
+         * 
+         * This function:
+         * 1. Clears previous structure from viewer
+         * 2. Parses SDF data (atomic positions and connectivity)
+         * 3. Sets up proper rendering based on molecular geometry rules
+         * 4. Applies color schemes and visual styles
+         * 5. Renders to WebGL canvas
+         */
+        function renderStructure(compoundData) {
+            try {
+                // Clear previous structure
+                STATE.viewer.clear();
+
+                // Add SDF data to viewer
+                // 3Dmol.js parser reads atomic coordinates and connectivity
+                // The parser respects hybridization and molecular geometry from the structure
+                $3Dmol.addStyle('', {stick: {}});
+                STATE.viewer.addModel(compoundData.sdf, 'sdf');
+
+                // Get added model for further styling
+                const models = STATE.viewer.getModel(0);
+
+                // Apply initial style
+                applyStyle(STATE.currentStyle);
+
+                // Apply color scheme
+                applyColorScheme(document.getElementById('colorScheme').value);
+
+                // Set zoom and render
+                STATE.viewer.zoomTo();
+                STATE.viewer.render();
+
+                // Update compound info
+                updateCompoundInfo(compoundData);
+
+                STATE.currentCompound = compoundData;
+
+                showAlert(`Loaded: ${compoundData.name}`, 'success');
+
+            } catch (error) {
+                showAlert(`Rendering error: ${error.message}`, 'error');
+                console.error('Rendering error:', error);
+            }
+        }
+
+        /**
+         * Apply rendering style
+         * 
+         * Different molecular visualization styles reveal different information:
+         * - Stick: Shows bond connectivity clearly
+         * - Spacefill: Shows van der Waals radii and molecular surface
+         * - Ball & Stick: Combines bond and atomic information
+         * - Cartoon: Shows secondary structure (useful for proteins)
+         */
+        function applyStyle(style) {
+            if (!STATE.viewer) return;
+
+            // Clear all styles
+            STATE.viewer.setStyle({}, {});
+
+            switch(style) {
+                case 'stick':
+                    STATE.viewer.setStyle({}, {stick: {colorscheme: 'chainHetatm'}});
+                    break;
+                case 'sphere':
+                    // Spacefill model shows atomic van der Waals radii
+                    STATE.viewer.setStyle({}, {sphere: {colorscheme: 'chainHetatm'}});
+                    break;
+                case 'ballstick':
+                    // Ball and Stick combines sphere (atoms) with sticks (bonds)
+                    STATE.viewer.setStyle({}, {stick: {colorscheme: 'chainHetatm'}});
+                    STATE.viewer.setStyle({}, {sphere: {scale: 0.3, colorscheme: 'chainHetatm'}});
+                    break;
+                case 'cartoon':
+                    STATE.viewer.setStyle({}, {cartoon: {color: 'spectrum'}});
+                    break;
+            }
+
+            // Re-apply color scheme after style change
+            applyColorScheme(document.getElementById('colorScheme').value);
+
+            STATE.currentStyle = style;
+            STATE.viewer.render();
+        }
+
+        /**
+         * Apply color schemes to molecule
+         * 
+         * Different color schemes highlight different chemical properties
+         */
+        function applyColorScheme(scheme) {
+            if (!STATE.viewer) return;
+
+            const colorSchemes = {
+                'default': 'chainHetatm',
+                'spectrum': 'spectrum',
+                'rainbow': 'rainbow',
+                'whitecarbon': 'whiteCarbon'
+            };
+
+            const selector = {};
+            const style = {stick: {colorscheme: colorSchemes[scheme] || 'chainHetatm'}};
+            
+            if (STATE.currentStyle !== 'cartoon') {
+                STATE.viewer.setStyle(selector, style);
+            }
+
+            STATE.viewer.render();
+        }
+
+        /**
+         * Toggle molecular surface visualization
+         * Shows Van der Waals surface or solvent-accessible surface
+         */
+        function toggleSurface() {
+            if (!STATE.viewer || !STATE.currentCompound) return;
+
+            STATE.surfaceVisible = !STATE.surfaceVisible;
+
+            if (STATE.surfaceVisible) {
+                // Add Van der Waals surface
+                STATE.viewer.addSurface($3Dmol.SurfaceType.VDW, {
+                    opacity: 0.7,
+                    color: 'spectrum',
+                    wireframe: false
+                });
+                showAlert('Surface visualization enabled', 'success');
+            } else {
+                // Remove all surfaces
+                STATE.viewer.removeAllSurfaces();
+                showAlert('Surface visualization disabled', 'success');
+            }
+
+            STATE.viewer.render();
+        }
+
+        /**
+         * Update compound information display
+         */
+        function updateCompoundInfo(compound) {
+            document.getElementById('compoundInfo').classList.remove('hidden');
+            document.getElementById('infoName').textContent = compound.name || 'Unknown';
+            document.getElementById('infoFormula').textContent = compound.formula || 'Unknown';
+            document.getElementById('infoCID').textContent = compound.cid || 'N/A';
+            
+            // Count atoms from SDF data
+            const atomCount = (compound.sdf.match(/\n/g) || []).length > 3 ? 
+                parseInt(compound.sdf.substring(0, 100).split('\n')[3]) : 'Unknown';
+            document.getElementById('infoAtoms').textContent = atomCount;
+        }
+
+        /**
+         * Display alerts/notifications
+         * Smooth, non-intrusive notifications that auto-dismiss
+         */
+        function showAlert(message, type = 'info') {
+            const alertContainer = document.getElementById('alertContainer');
+            const alertDiv = document.createElement('div');
+            alertDiv.className = `alert alert-${type}`;
+            alertDiv.textContent = message;
+            alertContainer.appendChild(alertDiv);
+
+            // Auto-remove after 5 seconds
+            setTimeout(() => {
+                alertDiv.remove();
+            }, 5000);
+        }
+
+        /**
+         * Add compound to search history
+         */
+        function addToHistory(compoundName) {
+            // Avoid duplicates
+            if (STATE.searchHistory.includes(compoundName)) {
+                STATE.searchHistory = STATE.searchHistory.filter(item => item !== compoundName);
+            }
+
+            STATE.searchHistory.unshift(compoundName);
+            
+            // Keep only last 20 searches
+            STATE.searchHistory = STATE.searchHistory.slice(0, 20);
+            
+            // Persist to localStorage
+            localStorage.setItem('molviewHistory', JSON.stringify(STATE.searchHistory));
+            
+            updateHistoryUI();
+        }
+
+        /**
+         * Update search history UI
+         */
+        function updateHistoryUI() {
+            const historyContainer = document.getElementById('searchHistory');
+            
+            if (STATE.searchHistory.length === 0) {
+                historyContainer.innerHTML = '<p class="text-xs text-gray-500 italic">No searches yet</p>';
+                return;
+            }
+
+            historyContainer.innerHTML = STATE.searchHistory
+                .map(compound => `
+                    <div class="history-item" onclick="document.getElementById('searchInput').value = '${compound}'; performSearch();">
+                        <div class="text-sm font-medium">${compound}</div>
+                    </div>
+                `)
+                .join('');
+        }
+
+        /**
+         * Main search and render flow
+         */
+        async function performSearch() {
+            const query = document.getElementById('searchInput').value.trim();
+
+            if (!query) {
+                showAlert('Please enter a compound name', 'warning');
+                return;
+            }
+
+            if (STATE.isLoading) return;
+
+            STATE.isLoading = true;
+            document.getElementById('searchBtn').disabled = true;
+
+            try {
+                // Fetch from PubChem
+                const compoundData = await fetchCompoundFromPubChem(query);
+                
+                // Render in 3D viewer
+                renderStructure(compoundData);
+                
+                // Add to history
+                addToHistory(query);
+                
+                // Clear input
+                document.getElementById('searchInput').value = '';
+
+            } catch (error) {
+                console.error('Search error:', error);
+            } finally {
+                STATE.isLoading = false;
+                document.getElementById('searchBtn').disabled = false;
+            }
+        }
+
+        // ============================================
+        // EVENT LISTENERS
+        // ============================================
+
+        // Search functionality
+        document.getElementById('searchBtn').addEventListener('click', performSearch);
+        document.getElementById('searchInput').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') performSearch();
+        });
+
+        // Style buttons
+        document.getElementById('styleStick').addEventListener('click', function() {
+            updateStyleButtons(this);
+            applyStyle('stick');
+        });
+
+        document.getElementById('styleSphere').addEventListener('click', function() {
+            updateStyleButtons(this);
+            applyStyle('sphere');
+        });
+
+        document.getElementById('styleBallStick').addEventListener('click', function() {
+            updateStyleButtons(this);
+            applyStyle('ballstick');
+        });
+
+        document.getElementById('styleCartoon').addEventListener('click', function() {
+            updateStyleButtons(this);
+            applyStyle('cartoon');
+        });
+
+        function updateStyleButtons(clickedButton) {
+            document.querySelectorAll('[id^="style"]').forEach(btn => {
+                btn.classList.remove('active');
+            });
+            clickedButton.classList.add('active');
+        }
+
+        // Additional controls
+        document.getElementById('toggleSurface').addEventListener('click', toggleSurface);
+
+        document.getElementById('toggleSticks').addEventListener('click', () => {
+            if (!STATE.viewer) return;
+            STATE.sticksVisible = !STATE.sticksVisible;
+            
+            if (STATE.sticksVisible) {
+                STATE.viewer.setStyle({}, {stick: {colorscheme: 'chainHetatm'}});
+            } else {
+                STATE.viewer.setStyle({}, {stick: {}});
+            }
+            
+            STATE.viewer.render();
+            showAlert(`Sticks ${STATE.sticksVisible ? 'enabled' : 'disabled'}`, 'success');
+        });
+
+        document.getElementById('resetView').addEventListener('click', () => {
+            if (STATE.viewer) {
+                STATE.viewer.zoomTo();
+                STATE.viewer.render();
+                showAlert('View reset', 'success');
+            }
+        });
+
+        // Color scheme selector
+        document.getElementById('colorScheme').addEventListener('change', (e) => {
+            applyColorScheme(e.target.value);
+        });
+
+        // Clear history
+        document.getElementById('clearHistory').addEventListener('click', () => {
+            STATE.searchHistory = [];
+            localStorage.removeItem('molviewHistory');
+            updateHistoryUI();
+            showAlert('Search history cleared', 'success');
+        });
+
+        // ============================================
+        // INITIALIZATION
+        // ============================================
+
+        // Initialize viewer on page load
+        window.addEventListener('DOMContentLoaded', () => {
+            initializeViewer();
+            updateHistoryUI();
+            showAlert('Welcome to MolView! Search for any compound to visualize its 3D structure', 'success');
+
+            // Load default compound for demo
+            setTimeout(() => {
+                document.getElementById('searchInput').value = 'Caffeine';
+                performSearch();
+            }, 500);
+        });
+
+        // Handle window resize
+        window.addEventListener('resize', () => {
+            if (STATE.viewer) {
+                STATE.viewer.render();
+            }
+        });
+    </script>
+</body>
+</html>
