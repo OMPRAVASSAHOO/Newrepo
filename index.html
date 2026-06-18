@@ -138,6 +138,12 @@
             color: #fff;
         }
 
+        .alert-info {
+            background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%);
+            border-left: 4px solid #6366f1;
+            color: #fff;
+        }
+
         @keyframes slideIn {
             from {
                 transform: translateX(400px);
@@ -259,6 +265,49 @@
             text-transform: uppercase;
             letter-spacing: 1px;
         }
+
+        /* Disabled button state */
+        button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none !important;
+        }
+
+        /* Autocomplete suggestions */
+        .autocomplete-container {
+            position: relative;
+            width: 100%;
+        }
+
+        .autocomplete-list {
+            position: absolute;
+            top: 100%;
+            left: 0;
+            right: 0;
+            background: rgba(15, 52, 96, 0.95);
+            border: 1px solid #00d4ff;
+            border-top: none;
+            border-radius: 0 0 6px 6px;
+            max-height: 200px;
+            overflow-y: auto;
+            z-index: 100;
+            backdrop-filter: blur(10px);
+        }
+
+        .autocomplete-item {
+            padding: 10px 12px;
+            cursor: pointer;
+            border-bottom: 1px solid rgba(0, 212, 255, 0.2);
+            transition: background 0.2s ease;
+        }
+
+        .autocomplete-item:hover {
+            background: rgba(0, 212, 255, 0.2);
+        }
+
+        .autocomplete-item:last-child {
+            border-bottom: none;
+        }
     </style>
 </head>
 <body class="dark">
@@ -276,7 +325,7 @@
             <!-- Search Input Section -->
             <div>
                 <label class="block text-sm font-semibold mb-2">Search Compound</label>
-                <div class="flex gap-2">
+                <div class="flex gap-2 autocomplete-container">
                     <input 
                         type="text" 
                         id="searchInput" 
@@ -287,6 +336,7 @@
                     <button id="searchBtn" class="px-4 py-2 rounded-lg whitespace-nowrap">
                         Search
                     </button>
+                    <div id="autocompleteList" class="autocomplete-list" style="display: none;"></div>
                 </div>
                 <p class="text-xs text-gray-400 mt-2">
                     💡 Supports IUPAC names, common names, CAS numbers, and molecular formulas
@@ -422,12 +472,42 @@
         }
 
         /**
+         * Fetch compound CID using direct API call
+         * Uses the PubChem REST API which doesn't have CORS issues
+         */
+        async function fetchCompoundCID(query) {
+            try {
+                // Use the direct REST API endpoint which returns JSON
+                const searchUrl = `https://pubchem.ncbi.nlm.nih.gov/rest/autocomplete/compound/${encodeURIComponent(query)}/json`;
+                
+                const searchResponse = await fetch(searchUrl);
+                
+                if (!searchResponse.ok) {
+                    throw new Error('Failed to search compound');
+                }
+
+                const searchData = await searchResponse.json();
+
+                if (!searchData.dictionary_terms || searchData.dictionary_terms.length === 0) {
+                    throw new Error(`Compound "${query}" not found in PubChem database`);
+                }
+
+                // Get the CID from the first result
+                const cid = searchData.dictionary_terms[0];
+                return cid;
+
+            } catch (error) {
+                throw new Error(`Search error: ${error.message}`);
+            }
+        }
+
+        /**
          * Fetch molecular structure from PubChem API
          * 
          * PubChem is a free chemistry database with millions of compounds.
          * This function:
-         * 1. Searches for the compound by name/formula/CAS number
-         * 2. Gets the CID (Compound ID)
+         * 1. Gets the CID (Compound ID)
+         * 2. Fetches the compound properties
          * 3. Fetches the 3D structure in SDF format with coordinates
          * 4. Returns the SDF data for 3D rendering
          */
@@ -435,26 +515,24 @@
             try {
                 showAlert('Searching PubChem database...', 'info');
                 
-                // Step 1: Search for compound by name
-                // Supports IUPAC names, common names, CAS numbers, and formulas
-                const searchUrl = `https://pubchem.ncbi.nlm.nih.gov/cgi-bin/autocomplete/autocomplete.cgi?input=${encodeURIComponent(query)}&button=Search&n=10&type=compound`;
-                
-                const searchResponse = await fetch(searchUrl);
-                const searchData = await searchResponse.json();
-
-                if (!searchData.dictionary_terms || searchData.dictionary_terms.compound.length === 0) {
-                    throw new Error(`Compound "${query}" not found in PubChem database`);
-                }
-
-                // Get the CID from the first result
-                const cid = searchData.dictionary_terms.compound[0].cid;
+                // Step 1: Get CID
+                const cid = await fetchCompoundCID(query);
                 
                 // Step 2: Fetch compound properties
-                const propsUrl = `https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/cid/${cid}/property/MolecularFormula,IUPACName,CanonicalSMILES/JSON`;
-                const propsResponse = await fetch(propsUrl);
-                const propsData = await propsResponse.json();
+                const propsUrl = `https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/cid/${cid}/property/MolecularFormula,IUPACName,CanonicalSMILES,MolecularWeight/JSON`;
                 
-                const compound = propsData.properties[0];
+                let propsData;
+                try {
+                    const propsResponse = await fetch(propsUrl);
+                    if (!propsResponse.ok) {
+                        throw new Error('Failed to fetch properties');
+                    }
+                    propsData = await propsResponse.json();
+                } catch (e) {
+                    propsData = null;
+                }
+                
+                const compound = propsData?.properties?.[0] || {};
                 
                 // Step 3: Fetch 3D structure in SDF format
                 // SDF (Structure Data Format) includes 3D coordinates crucial for visualization
@@ -462,17 +540,25 @@
                 const sdfUrl = `https://pubchem.ncbi.nlm.nih.gov/cgi-bin/rest/ndb.cgi?query=cids&cids=${cid}&cmd=query&o=sdf&mode=3d`;
                 
                 const sdfResponse = await fetch(sdfUrl);
-                const sdfData = await sdfResponse.text();
+                let sdfData = await sdfResponse.text();
 
-                if (!sdfData || sdfData.includes('No data') || sdfData.includes('error')) {
-                    throw new Error('3D structure data not available for this compound');
+                if (!sdfData || sdfData.includes('No data') || sdfData.includes('error') || sdfData.length < 100) {
+                    // Try 2D structure if 3D not available
+                    const sdf2dUrl = `https://pubchem.ncbi.nlm.nih.gov/cgi-bin/rest/ndb.cgi?query=cids&cids=${cid}&cmd=query&o=sdf`;
+                    const sdf2dResponse = await fetch(sdf2dUrl);
+                    sdfData = await sdf2dResponse.text();
+                    
+                    if (!sdfData || sdfData.length < 100) {
+                        throw new Error('3D structure data not available for this compound. Try another compound.');
+                    }
                 }
 
                 return {
                     cid: cid,
-                    name: compound.IUPACName || searchData.dictionary_terms.compound[0].name,
-                    formula: compound.MolecularFormula,
-                    smiles: compound.CanonicalSMILES,
+                    name: compound.IUPACName || query,
+                    formula: compound.MolecularFormula || 'Unknown',
+                    smiles: compound.CanonicalSMILES || 'N/A',
+                    weight: compound.MolecularWeight || 'Unknown',
                     sdf: sdfData
                 };
 
@@ -500,11 +586,7 @@
                 // Add SDF data to viewer
                 // 3Dmol.js parser reads atomic coordinates and connectivity
                 // The parser respects hybridization and molecular geometry from the structure
-                $3Dmol.addStyle('', {stick: {}});
                 STATE.viewer.addModel(compoundData.sdf, 'sdf');
-
-                // Get added model for further styling
-                const models = STATE.viewer.getModel(0);
 
                 // Apply initial style
                 applyStyle(STATE.currentStyle);
@@ -521,7 +603,7 @@
 
                 STATE.currentCompound = compoundData;
 
-                showAlert(`Loaded: ${compoundData.name}`, 'success');
+                showAlert(`✓ Loaded: ${compoundData.name}`, 'success');
 
             } catch (error) {
                 showAlert(`Rendering error: ${error.message}`, 'error');
@@ -610,11 +692,11 @@
                     color: 'spectrum',
                     wireframe: false
                 });
-                showAlert('Surface visualization enabled', 'success');
+                showAlert('✓ Surface visualization enabled', 'success');
             } else {
                 // Remove all surfaces
                 STATE.viewer.removeAllSurfaces();
-                showAlert('Surface visualization disabled', 'success');
+                showAlert('✓ Surface visualization disabled', 'success');
             }
 
             STATE.viewer.render();
@@ -685,7 +767,7 @@
 
             historyContainer.innerHTML = STATE.searchHistory
                 .map(compound => `
-                    <div class="history-item" onclick="document.getElementById('searchInput').value = '${compound}'; performSearch();">
+                    <div class="history-item" onclick="document.getElementById('searchInput').value = '${compound.replace(/'/g, "\\'")}'; performSearch();">
                         <div class="text-sm font-medium">${compound}</div>
                     </div>
                 `)
@@ -693,10 +775,47 @@
         }
 
         /**
+         * Autocomplete functionality
+         */
+        async function handleAutocomplete(query) {
+            if (query.length < 2) {
+                document.getElementById('autocompleteList').style.display = 'none';
+                return;
+            }
+
+            try {
+                const url = `https://pubchem.ncbi.nlm.nih.gov/rest/autocomplete/compound/${encodeURIComponent(query)}/json`;
+                const response = await fetch(url);
+                const data = await response.json();
+
+                const autocompleteList = document.getElementById('autocompleteList');
+                
+                if (!data.dictionary_terms || data.dictionary_terms.length === 0) {
+                    autocompleteList.style.display = 'none';
+                    return;
+                }
+
+                const suggestions = data.dictionary_terms.slice(0, 5);
+                autocompleteList.innerHTML = suggestions
+                    .map(suggestion => `
+                        <div class="autocomplete-item" onclick="document.getElementById('searchInput').value = '${suggestion.replace(/'/g, "\\'")}'; performSearch();">
+                            ${suggestion}
+                        </div>
+                    `)
+                    .join('');
+                
+                autocompleteList.style.display = 'block';
+            } catch (error) {
+                document.getElementById('autocompleteList').style.display = 'none';
+            }
+        }
+
+        /**
          * Main search and render flow
          */
         async function performSearch() {
             const query = document.getElementById('searchInput').value.trim();
+            document.getElementById('autocompleteList').style.display = 'none';
 
             if (!query) {
                 showAlert('Please enter a compound name', 'warning');
@@ -737,6 +856,18 @@
         document.getElementById('searchBtn').addEventListener('click', performSearch);
         document.getElementById('searchInput').addEventListener('keypress', (e) => {
             if (e.key === 'Enter') performSearch();
+        });
+
+        // Autocomplete
+        document.getElementById('searchInput').addEventListener('input', (e) => {
+            handleAutocomplete(e.target.value);
+        });
+
+        // Close autocomplete on blur
+        document.getElementById('searchInput').addEventListener('blur', () => {
+            setTimeout(() => {
+                document.getElementById('autocompleteList').style.display = 'none';
+            }, 200);
         });
 
         // Style buttons
@@ -781,14 +912,14 @@
             }
             
             STATE.viewer.render();
-            showAlert(`Sticks ${STATE.sticksVisible ? 'enabled' : 'disabled'}`, 'success');
+            showAlert(`✓ Sticks ${STATE.sticksVisible ? 'enabled' : 'disabled'}`, 'success');
         });
 
         document.getElementById('resetView').addEventListener('click', () => {
             if (STATE.viewer) {
                 STATE.viewer.zoomTo();
                 STATE.viewer.render();
-                showAlert('View reset', 'success');
+                showAlert('✓ View reset', 'success');
             }
         });
 
@@ -802,7 +933,7 @@
             STATE.searchHistory = [];
             localStorage.removeItem('molviewHistory');
             updateHistoryUI();
-            showAlert('Search history cleared', 'success');
+            showAlert('✓ Search history cleared', 'success');
         });
 
         // ============================================
@@ -814,12 +945,6 @@
             initializeViewer();
             updateHistoryUI();
             showAlert('Welcome to MolView! Search for any compound to visualize its 3D structure', 'success');
-
-            // Load default compound for demo
-            setTimeout(() => {
-                document.getElementById('searchInput').value = 'Caffeine';
-                performSearch();
-            }, 500);
         });
 
         // Handle window resize
